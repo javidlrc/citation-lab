@@ -1,0 +1,143 @@
+<div class="container">
+  <h1>Citation Template Lab (Angular)</h1>
+
+  <!-- View toggles -->
+  <div class="row" style="margin-bottom: 12px;">
+    <button [class.secondary]="view!=='builder'" (click)="view='builder'">Builder</button>
+    <button [class.secondary]="view!=='combos'" (click)="view='combos'">Combinations</button>
+  </div>
+
+  <!-- ==================== BUILDER VIEW ==================== -->
+  <ng-container *ngIf="view === 'builder'">
+    <!-- Spec → Arguments -->
+    <section class="card">
+      <h2>Argument Pre-Fill</h2>
+      <p class="muted">Paste an existing formatted citation with [square brackets].</p>
+
+      <textarea
+        [(ngModel)]="specText"
+        class="mono"
+        rows="8"
+        placeholder="Paste the spec with [Placeholders] here">
+      </textarea>
+
+      <div class="row" style="margin-top: 10px;">
+        <button (click)="runExtract()">Extract → Args</button>
+        <button class="secondary" (click)="autoConvertSpecToTemplate()">Auto-convert Spec → Template</button>
+      </div>
+    </section>
+
+    <!-- Arguments -->
+    <section class="card">
+      <h2>Arguments</h2>
+
+      <div class="grid">
+        <div class="arg" *ngFor="let n of args; index as i">
+          <div class="arg-head">
+            <div><strong>{{ i + 1 }}. {{ n }}</strong></div>
+          </div>
+          <input [(ngModel)]="argValues[i]" [placeholder]="'Value for ' + n" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 10px; gap: 8px;">
+        <button class="secondary" (click)="clear()">Clear</button>
+        <button class="secondary" (click)="autofillNames()">Autofill Names</button>
+      </div>
+
+    </section>
+
+    <!-- Builder -->
+    <section class="card">
+      <h2>Builder</h2>
+
+      <div class="row chips">
+        <button class="chip" (click)="insertToken('[%s]')">[%s]</button>
+        <button class="chip" (click)="insertToken('{ }')">&#123; &#125;</button>
+        <button class="chip" (click)="insertToken('+')">+</button>
+        <button class="chip" (click)="insertToken('[{<i>}+[%s]+{</i>}]')">&lt;i&gt;…&lt;/i&gt;</button>
+        <button class="chip" (click)="insertToken('[{&quot;}+[%s]+{&quot;}]')">“…”</button>
+        <button class="chip" (click)="insertToken('[{(}+[%s]+{)}]')">(…)</button>
+      </div>
+
+      <!-- Highlighter overlay for the TEMPLATE (not the spec) -->
+      <div class="syntax-container">
+        <pre #syntaxPre class="syntax-highlight mono" [innerHTML]="highlightedTemplate"></pre>
+        <textarea
+          class="syntax-input mono"
+          rows="8"
+          [ngModel]="template"
+          (ngModelChange)="onTemplateChange($event)"
+          (scroll)="syncScroll($event)"
+        ></textarea>
+      </div>
+
+
+      <div class="issues">
+        <span class="pill" *ngIf="issues.length === 0">No issues</span>
+        <span class="pill bad" *ngFor="let m of issues">{{ m }}</span>
+      </div>
+    </section>
+
+    <!-- Preview -->
+    <section class="card">
+      <h2>Preview</h2>
+
+      <h3>What it should look like</h3>
+      <pre class="spec mono">{{ specText || '(no spec provided)' }}</pre>
+
+      <div class="row" style="justify-content: space-between; align-items: center; margin: 8px 0;">
+        <button class="secondary" (click)="copy()">Copy</button>
+      </div>
+
+      <h3>Current Citation</h3>
+
+      <div class="preview">
+        <ng-container *ngIf="(result || '').trim(); else emptyPreview">
+          <div *ngIf="showHTML; else plainPreview" class="mono" [innerHTML]="result"></div>
+          <ng-template #plainPreview>
+            <pre class="mono">{{ result }}</pre>
+          </ng-template>
+        </ng-container>
+        <ng-template #emptyPreview>
+          <div class="muted">(empty — all expressions collapsed)</div>
+        </ng-template>
+      </div>
+    </section>
+
+    <!-- Diagnostics -->
+    <section class="card" *ngIf="diag">
+      <h2>Engine Tests</h2>
+      <div class="test" *ngFor="let d of diag" [class.pass]="d.pass" [class.fail]="!d.pass">
+        <div class="title">{{ d.pass ? 'PASS' : 'FAIL' }} — {{ d.name }}</div>
+        <div class="line"><b>want:</b> {{ d.want }}</div>
+        <div class="line"><b>got:</b> {{ d.got }}</div>
+      </div>
+    </section>
+  </ng-container>
+
+  <!-- ==================== COMBINATIONS VIEW ==================== -->
+  <ng-container *ngIf="view === 'combos'">
+    <section class="card">
+      <h3>Results</h3>
+      <div class="space-y">
+        <div class="arg" *ngFor="let row of comboRows; index as idx">
+          <div class="muted" style="font-size: 12px; margin-bottom: 6px;">
+            {{ idx + 1 }}. [{{ row.label || '—' }}]
+          </div>
+
+          <ng-container *ngIf="(row.output || '').trim(); else emptyRow">
+            <div *ngIf="showHTML; else plainRow" class="mono" [innerHTML]="row.output"></div>
+            <ng-template #plainRow>
+              <pre class="mono" style="white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;">
+{{ row.output }}</pre>
+            </ng-template>
+          </ng-container>
+          <ng-template #emptyRow>
+            <div class="muted">(empty)</div>
+          </ng-template>
+        </div>
+      </div>
+    </section>
+  </ng-container>
+</div>

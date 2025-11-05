@@ -1,1 +1,34 @@
 /* You can add global styles to this file, and also import other style files */
+/* ---- Global polish ---- */
+:root {
+  --bg: #f6f7fb;
+  --card: #ffffff;
+  --border: #e6e8f0;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #111827;
+  --chip: #f8fafc;
+  --chip-border: #e5e7eb;
+  --pill: #f3f4f6;
+  --focus: 0 0 0 4px rgba(59, 130, 246, .15);
+}
+
+/* Make padding/borders count toward width everywhere */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
+button, input, textarea {
+  outline: none;
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  box-shadow: var(--focus);
+}

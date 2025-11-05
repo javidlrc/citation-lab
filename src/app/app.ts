@@ -1,11 +1,10 @@
-import { Component, signal } from '@angular/core';
+import { Component } from '@angular/core';
+import { LabComponent } from './lab/lab.component';
 
 @Component({
   selector: 'app-root',
-  imports: [],
-  templateUrl: './app.html',
-  styleUrl: './app.scss'
+  standalone: true,
+  imports: [LabComponent],
+  template: `<app-lab></app-lab>`,
 })
-export class App {
-  protected readonly title = signal('citation-lab');
-}
+export class AppComponent {}
