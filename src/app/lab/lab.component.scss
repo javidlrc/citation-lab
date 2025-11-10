@@ -342,3 +342,25 @@ button.secondary {
   flex: 1 1 auto;   /* grow */
   min-height: 260px;
 }
+
+.uncollapsed-box {
+  margin-top: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.uncollapsed-head {
+  font-size: 12px;
+  padding: 6px 10px;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.uncollapsed-pre {
+  margin: 0;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}

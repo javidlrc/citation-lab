@@ -146,30 +146,70 @@ export class LabComponent {
 };
 
 
-  /** Try to fold the currently selected text if it is a balanced [ ... ] group */
-  foldSelection(): void {
-    const ed = this.monacoDir?.getEditor();
-    const model = ed?.getModel();
-    if (!ed || !model) return;
+  // --- helpers to work with [*] tokens ---
 
-    const sel = ed.getSelection();
-    if (!sel) return;
-
-    const range = monaco.Range.lift(sel);
-    const selected = model.getValueInRange(range);
-
-    if (!this.isBalancedBracketedExpr(selected)) {
-      // optional: show a toast/warning
-      return;
-    }
-
-    // Append to the fold pieces list; this becomes the next ordinal
-    this.foldPieces.push(selected);
-
-    // Replace selection with the visible token [*]
-    ed.executeEdits('fold', [{ range, text: '[*]' }]);
-    this.template = model.getValue();
+/** Count how many [*] tokens occur before an absolute offset in `text`. */
+private countTokensBefore(text: string, offset: number): number {
+  return (text.slice(0, offset).match(/\[\*\]/g) || []).length;
 }
+
+/** Expand [*] in a slice using the current foldPieces starting at a given index. */
+private expandSliceUsingPieces(slice: string, startPieceIndex: number): { expanded: string; consumed: number } {
+  let idx = startPieceIndex;
+  const expanded = slice.replace(/\[\*\]/g, () => this.foldPieces[idx++] ?? '');
+  return { expanded, consumed: idx - startPieceIndex };
+}
+
+/** Validate selection is exactly one bracketed expression: starts '[' ends ']' and balances [] and {}. */
+private isBalancedBracketedExpr(s: string): boolean {
+  if (!s || s[0] !== '[' || s[s.length - 1] !== ']') return false;
+  let b = 0, c = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '\\') { i++; continue; }
+    if (ch === '[') b++;
+    if (ch === ']') b--;
+    if (ch === '{') c++;
+    if (ch === '}') c--;
+    if (b < 0 || c < 0) return false;
+  }
+  return b === 0 && c === 0;
+}
+
+// --- fixed foldSelection ---
+
+foldSelection(): void {
+  const ed = this.monacoDir?.getEditor();
+  const model = ed?.getModel();
+  if (!ed || !model) return;
+
+  const sel = ed.getSelection();
+  if (!sel) return;
+
+  const fullText = model.getValue();
+  const startOff = model.getOffsetAt(sel.getStartPosition());
+  const endOff   = model.getOffsetAt(sel.getEndPosition());
+  const selected = fullText.slice(startOff, endOff);
+
+  // Only allow folding a single bracketed expression
+  if (!this.isBalancedBracketedExpr(selected)) return;
+
+  // 1) Figure out which fold pieces the selection contains
+  const startPieceIndex = this.countTokensBefore(fullText, startOff);
+
+  // 2) Expand the selection by substituting any inner [*] using foldPieces
+  const { expanded, consumed } = this.expandSliceUsingPieces(selected, startPieceIndex);
+
+  // 3) Replace those consumed pieces with a single new piece in foldPieces
+  //    (this composes folds and preserves order)
+  this.foldPieces.splice(startPieceIndex, consumed, expanded);
+
+  // 4) Replace the selection in the editor with a single visible token [*]
+  ed.executeEdits('fold', [{ range: sel, text: '[*]' }]);
+  this.template = model.getValue();
+}
+
+
 
 
   /** Expand all fold tokens and clear the map */
@@ -192,23 +232,6 @@ export class LabComponent {
   }
   this.foldPieces = [];
 }
-
-
-  /** Validate selection is exactly one bracketed expression: starts '[' ends ']' and balances both [] and {} */
-  private isBalancedBracketedExpr(s: string): boolean {
-    if (!s || s[0] !== '[' || s[s.length - 1] !== ']') return false;
-    let b = 0, c = 0;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (ch === '\\') { i++; continue; } // skip escaped
-      if (ch === '[') b++;
-      if (ch === ']') b--;
-      if (ch === '{') c++;
-      if (ch === '}') c--;
-      if (b < 0 || c < 0) return false;
-    }
-    return b === 0 && c === 0;
-  }
 
   // ---------------------------------------------------------
   // Monaco diagnostics (run on expanded text!)
@@ -360,4 +383,18 @@ export class LabComponent {
     }
     return rows;
   }
+
+  /** Count how many [*] tokens occur before an absolute offset in the current template string */
+  private countTokensBeforeOffset(absOffset: number): number {
+    // Count occurrences of [*] in template up to absOffset
+    const slice = this.template.slice(0, absOffset);
+    return (slice.match(/\[\*\]/g) || []).length;
+  }
+
+  /** Expand a string that may contain [*], but start reading foldPieces at a given base index */
+  private expandFoldsWithBase(text: string, base: number): string {
+    let i = base;
+    return text.replace(/\[\*\]/g, () => this.foldPieces[i++] ?? '');
+  }
+
 }
