@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import * as monaco from 'monaco-editor';
@@ -6,11 +6,10 @@ import * as monaco from 'monaco-editor';
 import { CitationEngineService } from '../citation-engine.service';
 import { MonacoEditorDirective } from '../shared/monaco-editor.directive';
 
-/** Row shape used by the Combinations tester view */
 interface ComboRow {
-  label: string;                 // human label of which args are present in this combination
-  inputs: (string | null)[];     // inputs that were fed to the engine (nulls for the excluded ones)
-  output: string;                // rendered citation
+  label: string;
+  inputs: (string | null)[];
+  output: string;
 }
 
 @Component({
@@ -21,18 +20,14 @@ interface ComboRow {
   styleUrls: ['./lab.component.scss'],
 })
 export class LabComponent {
-  // ---------------------------------------------------------------------------
-  // View state / routing
-  // ---------------------------------------------------------------------------
-
-  /** Simple in-component view switcher */
-  // View switch
+  // ---------------------------------------------------------
+  // View state
+  // ---------------------------------------------------------
   view: 'builder' | 'combos' = 'builder';
 
-  // ---------------------------------------------------------------------------
-  // Core template + arguments state
-  // ---------------------------------------------------------------------------
-  // Start EMPTY
+  // ---------------------------------------------------------
+  // Core state: start EMPTY per your request
+  // ---------------------------------------------------------
   template = '';
   argNames: string[] = [];
   argValues: string[] = [];
@@ -44,50 +39,54 @@ export class LabComponent {
   diag: { name: string; got: string; want: string; pass: boolean }[] | null = null;
   newArgName = '';
 
+  /** Stores collapsed substrings; the Nth entry corresponds to the Nth [*] in the template. */
+  private foldPieces: string[] = [];
 
 
-  // ---------------------------------------------------------------------------
-  // Derived getters (kept as getters so UI stays in sync automatically)
-  // ---------------------------------------------------------------------------
+  // Monaco directive ref (to access editor/selection)
+  @ViewChild(MonacoEditorDirective) monacoDir?: MonacoEditorDirective;
 
-  /** Lint issues on the current template (brackets, braces, doubled +, etc.) */
-  get issues(): string[] {
-    return this.engine.lintTemplate(this.template);
+  // ---------------------------------------------------------
+  // Folding state
+  // ---------------------------------------------------------
+  /** Monotonic id for fold tokens like [*1], [*2], ... */
+  private foldSeq = 1;
+  /** Map token id -> original collapsed substring (e.g., '[[a]+[b]+{, }]') */
+  private foldMap = new Map<number, string>();
+
+  // ---------------------------------------------------------
+  // Derived getters (expanded text!)
+  // ---------------------------------------------------------
+  get expandedTemplate(): string {
+    return this.expandFolds(this.template);
   }
 
-  /** Argument names as a clean array (source of truth for lengths and labels) */
+  get issues(): string[] {
+    return this.engine.lintTemplate(this.expandedTemplate);
+  }
+
   get args(): string[] {
     return this.argNames.join(',').split(',').map(s => s.trim()).filter(Boolean);
   }
 
-  /** Values after applying the null mask (this is what the engine actually sees) */
   get preparedValues(): (string | null)[] {
     return this.argValues.map((v, i) => (this.nullMask[i] ? null : v));
   }
 
-  /** Rendered citation preview (engine output) */
   get result(): string {
     try {
-      return this.engine.format(this.template, ...this.preparedValues) || '';
+      // Always render from expanded template
+      return this.engine.format(this.expandedTemplate, ...this.preparedValues) || '';
     } catch (e: any) {
       return `Engine error: ${e?.message ?? e}`;
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
   constructor(private engine: CitationEngineService) {}
 
-  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------
   // Builder actions
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Extract argument labels from `specText` (anything wrapped in [ ... ])
-   * and replace the current argument list with the result.
-   */
+  // ---------------------------------------------------------
   runExtract(): void {
     const extracted = this.engine.extractBracketArgs(this.specText || '');
     if (!extracted.length) return;
@@ -95,17 +94,14 @@ export class LabComponent {
     this.argNames = extracted;
     this.argValues = Array.from({ length: extracted.length }, (_, i) => this.argValues[i] ?? '');
     this.nullMask  = Array.from({ length: extracted.length }, (_, i) => this.nullMask[i] ?? false);
-
-    this.syncComboMask(); // keep combinations checklist aligned
+    this.syncComboMask();
   }
 
-  /** Clear all argument values & null toggles (names remain) */
   clear(): void {
     this.argValues = this.args.map(() => '');
     this.nullMask  = this.args.map(() => false);
   }
 
-  /** Copy current rendered result to clipboard (with fallback for old browsers) */
   async copy(): Promise<void> {
     try {
       await navigator.clipboard.writeText(this.result || '');
@@ -116,42 +112,121 @@ export class LabComponent {
       ta.style.opacity = '0';
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); }
-      finally { document.body.removeChild(ta); }
-      // eslint-disable-next-line no-console
+      try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
       console.warn('Clipboard API failed; used execCommand fallback.', err);
     }
   }
 
-  /** Insert a small token (chip button) at the end of the template */
   insertToken(t: string): void {
+    // Insert at end (simple); can be improved to insert at caret
     this.template += t;
   }
 
-  /** Monaco editor → keep component state in sync */
   onMonacoChange(val: string): void {
-    this.template = val; // other computed fields (issues/result) auto-update via getters
+    this.template = val; // issues/result recalc from getters
   }
 
-  /**
-   * Provide Monaco markers (squiggles) for bracket/brace mismatches
-   * and a drift warning when `%s` count != argument count.
-   */
+  // ---------------------------------------------------------
+  // Folding: expand, hover, fold selection, unfold all
+  // ---------------------------------------------------------
+
+  /** Replace all [*id] with their original substrings */
+  /** Return template with all [*] replaced by their current pieces, non-destructive */
+  private expandFolds(text: string): string {
+    let i = 0;
+    return text.replace(/\[\*\]/g, () => this.foldPieces[i++] ?? '');
+  }
+
+
+
+  /** Hover provider callback: id -> content */
+  /** Hover callback: return the Nth collapsed piece for the Nth [*] */
+  getFoldHover = (ordinal: number): string | undefined => {
+  return this.foldPieces[ordinal];
+};
+
+
+  /** Try to fold the currently selected text if it is a balanced [ ... ] group */
+  foldSelection(): void {
+    const ed = this.monacoDir?.getEditor();
+    const model = ed?.getModel();
+    if (!ed || !model) return;
+
+    const sel = ed.getSelection();
+    if (!sel) return;
+
+    const range = monaco.Range.lift(sel);
+    const selected = model.getValueInRange(range);
+
+    if (!this.isBalancedBracketedExpr(selected)) {
+      // optional: show a toast/warning
+      return;
+    }
+
+    // Append to the fold pieces list; this becomes the next ordinal
+    this.foldPieces.push(selected);
+
+    // Replace selection with the visible token [*]
+    ed.executeEdits('fold', [{ range, text: '[*]' }]);
+    this.template = model.getValue();
+}
+
+
+  /** Expand all fold tokens and clear the map */
+  unfoldAll(): void {
+  const ed = this.monacoDir?.getEditor();
+  const model = ed?.getModel();
+
+  const expand = (text: string) => {
+    let idx = 0;
+    return text.replace(/\[\*\]/g, () => this.foldPieces[idx++] ?? '');
+  };
+
+  if (ed && model) {
+    const fullRange = model.getFullModelRange();
+    const expanded = expand(model.getValue());
+    ed.executeEdits('unfold-all', [{ range: fullRange, text: expanded }]);
+    this.template = expanded;
+  } else {
+    this.template = expand(this.template);
+  }
+  this.foldPieces = [];
+}
+
+
+  /** Validate selection is exactly one bracketed expression: starts '[' ends ']' and balances both [] and {} */
+  private isBalancedBracketedExpr(s: string): boolean {
+    if (!s || s[0] !== '[' || s[s.length - 1] !== ']') return false;
+    let b = 0, c = 0;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (ch === '\\') { i++; continue; } // skip escaped
+      if (ch === '[') b++;
+      if (ch === ']') b--;
+      if (ch === '{') c++;
+      if (ch === '}') c--;
+      if (b < 0 || c < 0) return false;
+    }
+    return b === 0 && c === 0;
+  }
+
+  // ---------------------------------------------------------
+  // Monaco diagnostics (run on expanded text!)
+  // ---------------------------------------------------------
   getMonacoMarkers = (text: string): monaco.editor.IMarkerData[] => {
+    const expanded = this.expandFolds(text);
     const markers: monaco.editor.IMarkerData[] = [];
 
-    // Structural pass for bracket/brace pairs (single-line model)
+    // Structural pass on expanded
     const stack: Array<{ ch: string; i: number }> = [];
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
+    for (let i = 0; i < expanded.length; i++) {
+      const ch = expanded[i];
       if (ch === '[' || ch === '{') stack.push({ ch, i });
       if (ch === ']' || ch === '}') {
         const last = stack.pop();
-        const mismatch =
-          !last ||
+        const mismatch = !last ||
           (last.ch === '[' && ch !== ']') ||
           (last.ch === '{' && ch !== '}');
-
         if (mismatch) {
           markers.push({
             severity: monaco.MarkerSeverity.Error,
@@ -164,8 +239,6 @@ export class LabComponent {
         }
       }
     }
-
-    // Any unclosed openers left on the stack
     for (const s of stack) {
       markers.push({
         severity: monaco.MarkerSeverity.Error,
@@ -177,8 +250,8 @@ export class LabComponent {
       });
     }
 
-    // %s drift warning
-    const placeholderCount = (text.match(/%s/g) || []).length;
+    // %s drift warning (expanded text!)
+    const placeholderCount = (expanded.match(/%s/g) || []).length;
     const argCount = this.args.length;
     if (placeholderCount !== argCount) {
       markers.push({
@@ -190,18 +263,12 @@ export class LabComponent {
         endColumn: 2,
       });
     }
-
     return markers;
   };
 
-  // ---------------------------------------------------------------------------
-  // Arguments list management
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Add a new argument name to the list.
-   * (We keep value/null/mask arrays aligned by index.)
-   */
+  // ---------------------------------------------------------
+  // Argument list management
+  // ---------------------------------------------------------
   addArg(alsoInsertPlaceholder = false): void {
     const name = (this.newArgName || `Arg${this.argNames.length + 1}`).trim();
     if (!name) return;
@@ -219,30 +286,22 @@ export class LabComponent {
     }
   }
 
-  /** Remove an argument (and its aligned value/masks) by index */
   removeArg(i: number): void {
     if (i < 0 || i >= this.argNames.length) return;
     const rm = <T>(a: T[]) => a.slice(0, i).concat(a.slice(i + 1));
-
     this.argNames        = rm(this.argNames);
     this.argValues       = rm(this.argValues);
     this.nullMask        = rm(this.nullMask);
     this.comboSelectMask = rm(this.comboSelectMask);
-
     this.syncComboMask();
   }
 
-  /** Fill each argument value with its display name (handy for punctuation checks) */
-  autofillNames(): void {
-    this.argValues = this.args.map((n) => n);
-    this.nullMask  = this.args.map(() => false);
-  }
+  /** Fill each argument value with its display name (handy for punctuation checks) */  
+  autofillNames(): void {    this.argValues = this.args.map((n) => n);    this.nullMask  = this.args.map(() => false);  }
 
-  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------
   // Combinations tester
-  // ---------------------------------------------------------------------------
-
-  /** Keep combinations selection mask length aligned with current `args` length */
+  // ---------------------------------------------------------
   private syncComboMask(): void {
     this.comboSelectMask = Array.from(
       { length: this.args.length },
@@ -250,12 +309,10 @@ export class LabComponent {
     );
   }
 
-  /** Indices of arguments currently selected for the power set */
   private selectedIndices(): number[] {
     return this.args.map((_, i) => i).filter(i => this.comboSelectMask[i]);
   }
 
-  /** Generate all non-empty subsets of a set of indices */
   private subsets(idxs: number[]): number[][] {
     const out: number[][] = [];
     const n = idxs.length;
@@ -267,24 +324,21 @@ export class LabComponent {
     return out;
   }
 
-  /** Total combination count (for UI) */
   get comboCount(): number {
     const k = this.selectedIndices().length;
     return k ? (1 << k) - 1 : 0;
   }
 
-  /** Rows for the Combinations view (label + rendered output per subset) */
   get comboRows(): ComboRow[] {
     const idxs = this.selectedIndices();
     if (!idxs.length) return [];
 
-    // Soft cap to prevent the UI from rendering huge lists
     const total = (1 << idxs.length) - 1;
-    if (total > 350000) {
+    if (total > 4096) {
       return [{
         label: '—',
         inputs: [],
-        output: `Too many combinations selected (${total}).`
+        output: `Too many combinations selected (${total}). Reduce selection to ≤ 4096.`
       }];
     }
 
@@ -296,7 +350,7 @@ export class LabComponent {
 
       let output = '';
       try {
-        output = this.engine.format(this.template, ...inputs);
+        output = this.engine.format(this.expandedTemplate, ...inputs);
       } catch (e: any) {
         output = `Engine error: ${e?.message ?? e}`;
       }
