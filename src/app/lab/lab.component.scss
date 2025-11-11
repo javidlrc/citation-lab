@@ -305,9 +305,62 @@ button.secondary {
   line-height: inherit;
 }
 
-.monaco-host, [monacoEditor] {
-  height: 260px;
-  border: 1px solid var(--border, #e5e7eb);
+/* Make sure the editor wrapper doesn't clip the hover widget */
+/* Your existing rules (keep them) */
+.monaco-host {
+  position: relative;
+  overflow: visible;    /* let hover escape */
+  display: block;
+  height: 320px;        /* or min-height: 320px; */
+  border-radius: 10px;
+  background: #fff;     /* optional: match card body */
+  border: 1px solid #e5e7eb;
+}
+
+/* Card should not clip the hover */
+.card {
+  overflow: visible;
+}
+
+/* Monaco hover above surrounding UI */
+.monaco-editor .monaco-editor-hover,
+.monaco-editor-hover {
+  z-index: 1000;
+}
+
+/* Extra safety: prevent Monaco’s internal wrapper from clipping */
+.monaco-editor,
+.monaco-editor .overflow-guard {
+  overflow: visible !important;
+}
+
+.card .editor-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.card .editor-wrap .monaco-host {
+  flex: 1 1 auto;   /* grow */
+  min-height: 260px;
+}
+
+.uncollapsed-box {
+  margin-top: 8px;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  overflow: hidden;
+  background: #fafafa;
+}
+
+.uncollapsed-head {
+  font-size: 12px;
+  padding: 6px 10px;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.uncollapsed-pre {
+  margin: 0;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
